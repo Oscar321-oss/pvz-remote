@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<title>PVZ 远程 · 入口</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    background:#101418; color:#e8ecef;
+    font-family:-apple-system,"PingFang SC",sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px;
+    -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+  }
+  .box { width:100%; max-width:340px; text-align:center; }
+  .logo { font-size:42px; margin-bottom:16px; line-height:1; }
+  h1 { font-size:19px; font-weight:600; margin-bottom:9px; }
+  h1.err { color:#ef8f8f; }
+  p { font-size:14px; color:#8b98a5; line-height:1.7; }
+  .spin {
+    width:34px; height:34px; margin:24px auto;
+    border:3px solid rgba(255,255,255,.14);
+    border-top-color:#5aa9e6; border-radius:50%;
+    animation:sp .85s linear infinite;
+  }
+  @keyframes sp { to { transform:rotate(360deg); } }
+  input {
+    width:100%; padding:13px 14px; margin-top:18px; font-size:16px;
+    background:#1b2128; border:1px solid #2c353f; border-radius:10px;
+    color:#e8ecef; font-family:inherit; text-align:center;
+    -webkit-user-select:text; user-select:text;
+  }
+  input:focus { outline:none; border-color:#5aa9e6; }
+  button {
+    width:100%; padding:13px; margin-top:12px; font-size:16px;
+    border:0; border-radius:10px; background:#2f6fa8; color:#fff;
+    font-family:inherit; font-weight:500;
+  }
+  button:active { opacity:.8; }
+  .hint { font-size:12px; color:#687585; margin-top:18px; line-height:1.65; word-break:break-all; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="logo">&#127803;</div>
+  <h1 id="title">正在找电脑…</h1>
+  <p id="msg">请稍候</p>
+  <div class="spin" id="spin"></div>
+
+  <div id="auth" class="hidden">
+    <input id="key" type="text" placeholder="输入访问码" autocomplete="off"
+           autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="ok">连接</button>
+    <div class="hint">只需输入一次，之后自动记住</div>
+  </div>
+
+  <button id="retry" class="hidden">重试</button>
+  <div class="hint" id="hint"></div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var OWNER = "Oscar321-oss";
+  var REPO  = "pvz-remote";
+  var FILE  = "current.json";
+  var API   = "https://api.github.com/repos/" + OWNER + "/" + REPO +
+              "/contents/" + FILE;
+
+  var title = document.getElementById("title");
+  var msg   = document.getElementById("msg");
+  var spin  = document.getElementById("spin");
+  var auth  = document.getElementById("auth");
+  var keyIn = document.getElementById("key");
+  var okBtn = document.getElementById("ok");
+  var retry = document.getElementById("retry");
+  var hint  = document.getElementById("hint");
+
+  function getToken() {
+    try { return localStorage.getItem("pvz_k") || ""; } catch (e) { return ""; }
+  }
+  function setToken(v) {
+    try { localStorage.setItem("pvz_k", v); } catch (e) {}
+  }
+
+  function show(t, m, mode) {
+    title.textContent = t;
+    msg.textContent = m || "";
+    title.className = (mode === "err") ? "err" : "";
+    spin.classList.toggle("hidden", mode !== "load");
+    retry.classList.toggle("hidden", mode !== "err");
+    auth.classList.add("hidden");
+  }
+
+  function go(base) {
+    var u = base;
+    var k = getToken();
+    if (k) {
+      u += (u.indexOf("?") >= 0 ? "&" : "?") + "k=" + encodeURIComponent(k);
+      location.replace(u);
+      return;
+    }
+    spin.classList.add("hidden");
+    title.textContent = "需要访问码";
+    msg.textContent = "第一次使用，请填入之前保存的访问码";
+    auth.classList.remove("hidden");
+    keyIn.focus();
+    okBtn.onclick = function () {
+      var v = keyIn.value.trim();
+      if (!v) { keyIn.focus(); return; }
+      setToken(v);
+      show("正在连接…", "", "load");
+      go(base);
+    };
+  }
+
+  function decode(b64) {
+    try {
+      var s = atob(String(b64).replace(/[\r\n]/g, ""));
+      return JSON.parse(decodeURIComponent(escape(s)));
+    } catch (e) { return null; }
+  }
+
+  function attempt(n) {
+    show("正在找电脑…", "第 " + n + " 次尝试", "load");
+    fetch(API + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.json();
+      })
+      .then(function (j) {
+        var data = decode(j.content || "");
+        if (!data || !data.url) throw new Error("地址文件为空");
+        hint.textContent = data.updated ? "电脑更新于 " + data.updated : "";
+        go(data.url);
+      })
+      .catch(function (e) {
+        if (n < 3) { setTimeout(function () { attempt(n + 1); }, 1500); return; }
+        show("找不到电脑", "电脑可能还没开机，或者串流服务没启动", "err");
+        hint.textContent = String((e && e.message) || e);
+      });
+  }
+
+  retry.onclick = function () { attempt(1); };
+
+  (function readHash() {
+    var m = /[#&]k=([^&]+)/.exec(location.hash || "");
+    if (m) setToken(decodeURIComponent(m[1]));
+  })();
+
+  (function readQuery() {
+    var m = /[?&]k=([^&]+)/.exec(location.search || "");
+    if (m) setToken(decodeURIComponent(m[1]));
+  })();
+
+  attempt(1);
+})();
+</script>
+</body>
+</html>
