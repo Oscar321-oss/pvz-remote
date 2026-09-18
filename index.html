@@ -43,6 +43,12 @@
     font-family:inherit; font-weight:500;
   }
   button:active { opacity:.8; }
+  a.btn2 {
+    display:block; width:100%; padding:12px; margin-top:12px; font-size:15px;
+    border:1px solid #35506b; border-radius:10px; background:transparent;
+    color:#8fc0e8; text-decoration:none; font-weight:500;
+  }
+  a.btn2:active { background:rgba(90,169,230,.12); }
   .hint { font-size:12px; color:#687585; margin-top:18px; line-height:1.65; word-break:break-all; }
   .hidden { display:none !important; }
 </style>
@@ -63,6 +69,7 @@
 
   <button id="retry" class="hidden">重试</button>
   <button id="force" class="hidden">仍然尝试打开</button>
+  <a id="lanbtn" class="btn2 hidden">在家？点这里直连（更快）</a>
   <div class="hint" id="hint"></div>
 </div>
 
@@ -84,6 +91,7 @@
   var okBtn = document.getElementById("ok");
   var retry = document.getElementById("retry");
   var force = document.getElementById("force");
+  var lanBtn= document.getElementById("lanbtn");
   var hint  = document.getElementById("hint");
 
   function getToken() {
@@ -91,6 +99,28 @@
   }
   function setToken(v) {
     try { localStorage.setItem("pvz_k", v); } catch (e) {}
+  }
+  function withToken(u) {
+    var k = getToken();
+    if (!k) { return u; }
+    return u + (u.indexOf("?") >= 0 ? "&" : "?") + "k=" + encodeURIComponent(k);
+  }
+
+  // 「在家直连」按钮。
+  // 为什么要有它：和电脑在同一个 Wi-Fi 时走局域网快得多（几毫秒 vs 几百毫秒），
+  // 但页面本身是 https 的，用脚本去「探测」http 的局域网地址可能被浏览器的
+  // 混合内容策略拦掉。而**整页跳转不受该策略限制**，所以做成一个用户点一下的
+  // 按钮 —— 一定有效，且在家的收益立刻拿到；在外面不点它就行。
+  var lanUrl = null;
+  function setLan(lan) { lanUrl = lan || null; refreshLan(); }
+  function refreshLan() {
+    // 知道局域网地址、且已经存过访问码，才亮出这个按钮
+    if (lanUrl && getToken()) {
+      lanBtn.href = withToken(lanUrl);
+      lanBtn.classList.remove("hidden");
+    } else {
+      lanBtn.classList.add("hidden");
+    }
   }
 
   function show(t, m, mode) {
@@ -119,6 +149,7 @@
         var v = keyIn.value.trim();
         if (!v) { keyIn.focus(); return; }
         setToken(v);
+        refreshLan();
         go(target);
       };
       return;
@@ -172,10 +203,11 @@
         var data = decode(j.content || "");
         if (!data || !data.url) throw new Error("地址文件为空");
         var stamp = data.updated ? "电脑更新于 " + data.updated : "";
+        setLan(data.lan);          // 记下局域网地址，亮出「在家直连」按钮
 
         // 和电脑在同一个 Wi-Fi 时，直连局域网比绕公网隧道快得多
         //（实测隧道 0.3~0.5 秒，局域网几毫秒）。先花不到 1 秒试一下，
-        // 通了就走快通道；不通就照旧走公网，行为完全不退化。
+        // 通了就走快通道；不通（或浏览器禁止探测）就照旧走公网，行为不退化。
         if (data.lan) {
           hint.textContent = "正在试局域网直连…";
           probeQuick(data.lan, 900, function (ok) {
