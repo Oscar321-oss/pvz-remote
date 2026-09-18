@@ -142,6 +142,18 @@
     setTimeout(function () { if (!settled) { settled = true; location.replace(u); } }, 4500);
   }
 
+  // 快速探一下某个地址通不通（用于决定走局域网还是走公网）。
+  // 超时给得很短：设备浏览器本来就慢，不能在这里多耗时间。
+  function probeQuick(target, ms, cb) {
+    var done = false;
+    function fin(ok) { if (done) { return; } done = true; cb(ok); }
+    var img = new Image();
+    img.onload = function () { fin(true); };
+    img.onerror = function () { fin(false); };
+    img.src = target + "/pixel.png?t=" + Date.now();
+    setTimeout(function () { fin(false); }, ms);
+  }
+
   function decode(b64) {
     try {
       var s = atob(String(b64).replace(/[\r\n]/g, ""));
@@ -159,7 +171,20 @@
       .then(function (j) {
         var data = decode(j.content || "");
         if (!data || !data.url) throw new Error("地址文件为空");
-        hint.textContent = data.updated ? "电脑更新于 " + data.updated : "";
+        var stamp = data.updated ? "电脑更新于 " + data.updated : "";
+
+        // 和电脑在同一个 Wi-Fi 时，直连局域网比绕公网隧道快得多
+        //（实测隧道 0.3~0.5 秒，局域网几毫秒）。先花不到 1 秒试一下，
+        // 通了就走快通道；不通就照旧走公网，行为完全不退化。
+        if (data.lan) {
+          hint.textContent = "正在试局域网直连…";
+          probeQuick(data.lan, 900, function (ok) {
+            hint.textContent = stamp + (ok ? " · 局域网直连（快）" : " · 走公网");
+            go(ok ? data.lan : data.url);
+          });
+          return;
+        }
+        hint.textContent = stamp;
         go(data.url);
       })
       .catch(function (e) {
